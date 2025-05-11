@@ -31,5 +31,5 @@ variable "aws_account_id" {
 variable "psql_db_name" {
   description = "Database Name"
   type        = string
-  default     = "cadastro-db"
+  default     = "cadastrodb"
 }
