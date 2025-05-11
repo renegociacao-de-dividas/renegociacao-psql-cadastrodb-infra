@@ -55,7 +55,7 @@ resource "aws_db_instance" "postgres" {
 resource "random_password" "rds_password" {
   length           = 16
   special          = true
-  override_special = "!@#%^&*()"
+  override_special = "!#$%^&*()-_=+[]{}<>?.," # removido '/', '@', '"', espaço
 }
 
 resource "random_id" "secret_version" {
