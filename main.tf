@@ -17,6 +17,24 @@ resource "aws_security_group" "rds_sg" {
   }
 }
 
+resource "aws_secretsmanager_secret" "db_credentials" {
+  name = "dbcredentials-psql-cadastro-db"
+}
+
+resource "aws_secretsmanager_secret_version" "db_credentials_version" {
+  secret_id     = aws_secretsmanager_secret.db_credentials.id
+  secret_string = jsonencode({
+    db_host     = aws_db_instance.postgres.address
+    db_port     = aws_db_instance.postgres.port
+    db_name     = aws_db_instance.postgres.db_name
+    db_user     = aws_db_instance.postgres.username
+    db_password = random_password.rds_password.result
+  })
+
+  depends_on = [aws_db_instance.postgres]
+}
+
+
 resource "aws_db_instance" "postgres" {
   allocated_storage    = 10
   storage_type         = "gp2"
@@ -43,22 +61,3 @@ resource "random_password" "rds_password" {
 resource "random_id" "secret_version" {
   byte_length = 4
 }
-
-data "aws_secretsmanager_secret" "db_credentials" {
-  name = "dbcredentials-psql-${var.psql_db_name}"
-}
-
-resource "aws_secretsmanager_secret_version" "db_credentials_version" {
-  secret_id = data.aws_secretsmanager_secret.db_credentials.id
-
-  secret_string = jsonencode({
-    db_host     = aws_db_instance.postgres.endpoint
-    db_port     = 5432
-    db_name     = aws_db_instance.postgres.db_name
-    db_user     = aws_db_instance.postgres.username
-    db_password = random_password.rds_password.result
-    version_id  = random_id.secret_version.hex
-  })
-}
-
-
