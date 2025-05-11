@@ -1,4 +1,4 @@
-name: Terraform CI
+name: Terraform AWS Deploy
 
 on:
   push:
@@ -7,26 +7,32 @@ on:
   workflow_dispatch:
 
 jobs:
-  terraform:
+  deploy:
+    name: Deploy Terraform
     environment: production
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     env:
-      DESTROY: "false" # Altere para 'true' para executar o destroy
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Init
-        run: terraform init -backend-config="bucket=${{ secrets.S3_BUCKET_NAME }}" -backend-config="key=terraform-eks/terraform.tfstate" -backend-config="region=${{ secrets.AWS_REGION }}"
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Terraform init
+        run: terraform init
 
       - name: Terraform Format
         run: terraform fmt -check
@@ -34,23 +40,11 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      - name: Terraform Plan (Apply Mode)
-        if: ${{ env.DESTROY == 'false' }}
-        run: terraform plan -out=tfplan
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-      - name: Save Plan
-        if: ${{ env.DESTROY == 'false' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan
-          path: tfplan
+      - name: Terraform plan
+        run: terraform plan
 
       - name: Terraform Apply
-        if: ${{ env.DESTROY == 'false' }}
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
