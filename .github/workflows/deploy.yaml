@@ -1,0 +1,88 @@
+name: Terraform CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  terraform:
+    environment: production
+    runs-on: ubuntu-latest
+
+    env:
+      DESTROY: "false" # Altere para 'true' para executar o destroy
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform Init
+        run: terraform init -backend-config="bucket=${{ secrets.S3_BUCKET_NAME }}" -backend-config="key=terraform-db/cadastro-db/terraform.tfstate" -backend-config="region=${{ secrets.AWS_REGION }}"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+
+      - name: Terraform Format
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan (Apply Mode)
+        if: ${{ env.DESTROY == 'false' }}
+        run: terraform plan -out=tfplan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Save Plan
+        if: ${{ env.DESTROY == 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: tfplan
+
+      - name: Terraform Apply
+        if: ${{ env.DESTROY == 'false' }}
+        run: terraform apply -auto-approve tfplan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Install PostgreSQL Client
+        if: ${{ env.DESTROY == 'false' }}
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client jq
+
+      - name: Get DB Credentials from Secrets Manager
+        if: ${{ env.DESTROY == 'false' }}
+        id: get-db-secret
+        run: |
+          secret=$(aws secretsmanager get-secret-value --secret-id dbcredentials-psql-cadastro-db --query SecretString --output text)
+          echo "DB_HOST=$(echo $secret | jq -r .db_host)" >> $GITHUB_ENV
+          echo "DB_PORT=$(echo $secret | jq -r .db_port)" >> $GITHUB_ENV
+          echo "DB_NAME=$(echo $secret | jq -r .db_name)" >> $GITHUB_ENV
+          echo "DB_USER=$(echo $secret | jq -r .db_user)" >> $GITHUB_ENV
+          echo "DB_PASSWORD=$(echo $secret | jq -r .db_password)" >> $GITHUB_ENV
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+
+      - name: Run SQL initialization script
+        if: ${{ env.DESTROY == 'false' }}
+        run: |
+          echo "Executando script SQL em $DB_HOST"
+          PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -U $DB_USER -d $DB_NAME -p $DB_PORT -f sql/init.sql
+
+      - name: Terraform Destroy
+        if: ${{ env.DESTROY == 'true' }}
+        run: terraform destroy -auto-approve
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
